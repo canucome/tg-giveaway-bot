@@ -14,7 +14,8 @@ A highly customizable and lightweight Telegram giveaway bot built with **Python 
 * **Persistent Scheduling**: Built-in SQLite database with `APScheduler` restores pending draws on restart, so a redeploy cannot lose a giveaway.
 * **Required Channels**: Entry is refused unless the user is actually a member of every required channel (checked live at join time, fail-closed). The bot must be an administrator in each required channel/group to reliably inspect other members.
 * **Anti-Bot Verification**: Optional Cloudflare Turnstile verification. A passed challenge is stored as a single-use proof bound to one user and one giveaway; the wizard refuses to enable the captcha unless Turnstile is actually configured.
-* **Admin Tools**: In-chat wizard (`/newgiveaway`) plus `/list`, `/cancel`, `/reroll`, `/retry`, `/ban`, `/unban`, `/addadmin`, `/admins`.
+* **Self-Service Prize Delivery**: The prize can be text — a redemption code or any message. Choose unique codes per winner or one shared text; every winner gets a "🎁 Claim prize" button in the DM and pulls the prize from the bot, so the host never sends anything by hand. Claims are atomic (a code is never handed out twice) and `/myprizes` re-shows what a user already received.
+* **Admin Tools**: In-chat wizard (`/newgiveaway`) plus `/list`, `/cancel`, `/reroll`, `/retry`, `/ban`, `/unban`, `/addadmin`, `/admins`, `/addcodes`, `/prizestatus`.
 * **Auditable Draws**: Winners are drawn with `secrets.SystemRandom()`, a user can win at most one tier, rerolls only apply to finished giveaways and keep the superseded draw on record, and every winner DM is logged as delivered or failed.
 * **Health Endpoint**: `GET /healthz` is served by the built-in aiohttp server in both modes.
 
@@ -80,9 +81,11 @@ python -m bot
 pip install pytest pytest-asyncio
 pytest
 ```
-The suite covers timezone handling, duplicate and concurrent entries, channel enforcement, the Turnstile form/proof/deep-link flow, concurrent draws and transaction rollback, notification retries, blacklist removal, reroll rules, and locale key parity. No Telegram or Cloudflare network access is required.
+The suite covers timezone handling, duplicate and concurrent entries, channel enforcement, the Turnstile form/proof/deep-link flow, concurrent draws and transaction rollback, notification retries, prize stock draw-down and duplicate-claim rejection, blacklist removal, reroll rules, and locale key parity. No Telegram or Cloudflare network access is required.
 
 For captcha-protected giveaways, participants should first send `/start` in a private chat with the bot. The Join button sends a private verification link. Submit the Turnstile form, return to the bot, and press Join to finish entering. Completing the captcha alone does not enter the giveaway.
+
+When the wizard asks how to deliver the prize, answer `1` for a unique code per winner, `2` for one text shared by everybody, or `0` to hand prizes out yourself. Stock can be topped up at any time with `/addcodes <id> <tier_name>` (one prize per line, `-` to finish), and `/prizestatus <id>` shows total/claimed/remaining per tier. Winners press the claim button, or send `/claim <id>` (all unclaimed tiers at once) and `/myprizes`. If a tier runs dry, the winner is told so, and the host is notified once with the exact `/addcodes` command to fix it.
 
 If a winner DM fails or a restart interrupts delivery, an admin can use `/retry <giveaway_id>` to send undelivered current winner messages. Successfully recorded deliveries and superseded winners are excluded. Public announcements are not retried by this command. A crash between Telegram accepting a message and the delivery record being committed can still cause a duplicate DM on retry.
 
@@ -98,7 +101,8 @@ If a winner DM fails or a restart interrupts delivery, an admin can use `/retry 
 * **持久化定时开奖**：内置 SQLite 数据库，`APScheduler` 任务在重启后按数据库里的未开奖记录自动恢复，不会因为重启丢任务。
 * **加群/加频道限制**：报名时实时调用 `get_chat_member` 校验，用户没有真正加入所列频道会被拒绝（检查失败时按「未加入」处理，不放行）。
 * **反作弊/防脚本**：可选启用 Cloudflare Turnstile。验证通过后会签发一次性凭据，绑定「一个用户 + 一个抽奖」，10 分钟过期；未配置完整时向导会直接拒绝勾选，而不会再发一个什么都不校验的盾牌图标。
-* **管理面板**：`/newgiveaway` 对话式向导，另有 `/list`、`/cancel`、`/reroll`、`/retry`、`/ban`、`/unban`、`/addadmin`、`/admins`。
+* **奖品自助领取**：奖品就是一段文本（兑换码/卡密/任何话术）。创建时可选「每人一个独立码」或「一份共享文本」，中奖私信里自带「🎁 领取奖品」按钮，中奖者自己从机器人处领走，主办方一条私信都不用发。领奖是原子操作，同一个码不会被发给两个人；`/myprizes` 可随时重看已领内容。
+* **管理面板**：`/newgiveaway` 对话式向导，另有 `/list`、`/cancel`、`/reroll`、`/retry`、`/ban`、`/unban`、`/addadmin`、`/admins`、`/addcodes`、`/prizestatus`。
 * **开奖可追溯**：使用 `secrets.SystemRandom()` 抽奖，同一人不会跨奖项重复中奖；`/reroll` 只对已结束抽奖生效并保留被替换的旧记录；中奖私信的成功/失败都会入库。
 * **健康检查**：两种模式都会由内建 aiohttp 服务提供 `GET /healthz`。
 
@@ -143,9 +147,11 @@ If a winner DM fails or a restart interrupts delivery, an admin can use `/retry 
    pip install pytest pytest-asyncio
    pytest
    ```
-   覆盖时区处理、重复与并发报名、频道校验、验证码表单及返回机器人流程、凭据原子消费、并发开奖及失败回滚、通知重试、拉黑清理、重抽规则与中英文案键对齐，全程不访问 Telegram 或 Cloudflare 网络。
+   覆盖时区处理、重复与并发报名、频道校验、验证码表单及返回机器人流程、凭据原子消费、并发开奖及失败回滚、通知重试、奖品库存扣减与重复领奖拒绝、拉黑清理、重抽规则与中英文案键对齐，全程不访问 Telegram 或 Cloudflare 网络。
 
 开启验证码的抽奖：用户应先私聊机器人发送 `/start`，再点击抽奖的参加按钮接收验证链接。提交验证码表单后返回机器人，再点击参加按钮才算完成报名。机器人必须是每个必加频道/群的管理员。
+
+向导第 7 步问「奖品怎么发」：`1` 每人一个独立码、`2` 所有人共享同一段文本、`0` 由你自己线下发。库存随时可用 `/addcodes <抽奖id> <奖项名>` 补货（一行一个奖品，发 `-` 结束），`/prizestatus <抽奖id>` 查看各档的 总数/已领/剩余。中奖者点私信里的领取按钮，或发 `/claim <抽奖id>`（一次领完所有未领奖项）、`/myprizes`。某档库存领完时，中奖者会收到「缺货」提示，主办方会被提醒一次，并附带可直接复制的补货命令。
 
 中奖私信发送失败或重启中断时，管理员可使用 `/retry <抽奖id>` 补发。已确认送达及被重抽替换的中奖记录不会补发；该命令不重发频道公告。如果 Telegram 已接收私信、但进程在记录送达前崩溃，补发仍可能产生重复私信。
 
@@ -163,3 +169,7 @@ If a winner DM fails or a restart interrupts delivery, an admin can use `/retry 
 * `/unban <user_id>` - (管理员) 解除用户黑名单限制
 * `/addadmin <user_id>` - (管理员) 动态授权新的管理员
 * `/admins` - (管理员) 查看当前管理员列表
+* `/addcodes <id> <奖项名称>` - (管理员) 给某奖项补奖品库存（一行一个奖品，发 `-` 结束）
+* `/prizestatus <id>` - (管理员) 查看该抽奖各奖项的库存/已领/剩余
+* `/claim <id>` - 中奖者自助领取该抽奖里自己所有未领的奖品
+* `/myprizes` - 中奖者重看自己已领取的奖品文本

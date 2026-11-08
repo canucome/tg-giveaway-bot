@@ -49,6 +49,7 @@ _LIGHTWEIGHT_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("participants", "verified_at", "DATETIME"),
     ("participants", "turnstile_nonce", "VARCHAR(64)"),
     ("participants", "turnstile_expires_at", "DATETIME"),
+    ("giveaways", "prize_mode", "VARCHAR(16) DEFAULT 'none'"),
 )
 
 

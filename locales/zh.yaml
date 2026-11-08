@@ -53,6 +53,7 @@ button:
   open_channel: "🔗 打开频道"
   refresh: "🔄 刷新"
   open_bot: "打开机器人"
+  claim: "🎁 领取奖品"
 
 join:
   ok: "🎉 报名成功,祝你好运!"
@@ -95,7 +96,42 @@ winner_dm:
     🎉 恭喜!你在 "{title}" 中中奖了。
     奖项:{tier}
     主办方稍后会联系你,也可以直接私信 {creator}。
+  body_claim: |
+    🎉 恭喜!你在 "{title}" 中奖了。
+    奖项:{tier}
+    点下面的「🎁 领取奖品」按钮就能拿到奖品,也可以发送 /claim 或 /myprizes。
   host: "主办方(ID:{id})"
+
+# 奖品自助领取。奖品种类只有两种:每人一条独立码(unique),或所有人同一段
+# 文本(shared)。文案里的 {code} 会原样发出,注意别放会破坏 HTML 的字符。
+prize:
+  claimed: "🎁 你的奖品:\n\n{code}"
+  empty: |
+    ⚠️ 该奖项的奖品暂时发完了。
+    已经通知主办方补货,补上之后再点一次按钮即可领取。
+  already: 你已经领过这个奖项了,发送 /myprizes 可以重新查看。
+  not_winner: 只有中奖者才能领取该奖品。
+  none_mode: 这场抽奖没有开启自助领奖。
+  unknown: 找不到这场抽奖,可能已被删除。
+  claim_usage: "用法:/claim <抽奖id>"
+  stock_alert: |
+    ⚠️ 抽奖 #{id} 的「{tier}」奖品已经发完,中奖者领不到。
+    用 /addcodes {id} {tier} 补货。
+  myprizes_empty: 你还没有领取过奖品。
+  myprizes_header: "🎁 你已领取的奖品(共 {count} 份):"
+  myprizes_row: |
+    #{id} {title} — {tier}
+    {code}
+  stock_header: "📦 抽奖 #{id} 的奖池:"
+  stock_row: "• {tier}:共 {total} / 已领 {claimed} / 剩余 {remaining}"
+  stock_empty: "抽奖 #{id} 还没有录入任何奖品。"
+  status_usage: "用法:/prizestatus <抽奖id>"
+  addcodes_usage: "用法:/addcodes <抽奖id> <奖项名>"
+  addcodes_prompt: |
+    请把「{tier}」的奖品一行一条发给我,发送 - 结束录入。
+  addcodes_ok: "✅ 已为「{tier}」录入 {count} 条奖品。"
+  addcodes_empty: 没有收到任何内容,请一行一条粘贴奖品,或发送 - 结束。
+  addcodes_unknown_tier: "抽奖 #{id} 没有名为「{tier}」的奖项。可选:{tiers}"
 
 admin:
   list_empty: 当前没有进行中的抽奖。
@@ -129,26 +165,43 @@ admin:
 # /newgiveaway 向导。每个步骤带序号,草稿保存在 FSM 状态中,
 # 直到最后一步输入 "ok" 才会真正创建。
 fsm:
-  enter_title: "抽奖标题 (1/7):"
-  enter_description: "抽奖说明 (2/7),发送 - 可跳过:"
+  enter_title: "抽奖标题 (1/9):"
+  enter_description: "抽奖说明 (2/9),发送 - 可跳过:"
   enter_prizes: |
-    奖项设置 (3/7),每行一个,格式为「名称:数量」,例如:
+    奖项设置 (3/9),每行一个,格式为「名称:数量」,例如:
     Steam 礼品卡: 2
     内测兑换码: 1
   bad_prizes: |
     无法解析。每行都需要是「名称:数量」,
     例如「Steam 礼品卡: 2」。
   enter_channels: |
-    要求加入的频道 (4/7),每行一个 @频道,
+    要求加入的频道 (4/9),每行一个 @频道,
     发送 - 可跳过。机器人必须已经是所列频道的管理员,
     报名时会实时校验订阅状态。
   bad_channels: |
     机器人无法使用以下频道,请先把它设为管理员:
     {channels}
-  enter_duration: "结束时间 (5/7):可填 30m / 6h / 3d 这样的时长,或填具体时间:"
+  enter_duration: "结束时间 (5/9):可填 30m / 6h / 3d 这样的时长,或填具体时间:"
   bad_duration: "无法识别该时间,请填写「30m」「6h」「3d」或「2026-01-31 20:00」。"
-  enter_turnstile: "是否要求报名者通过 Cloudflare Turnstile 人机验证?(6/7) 是/否:"
-  enter_target: "发布到哪里 (7/7):转发频道消息,或发送 @频道 / 数字 chat id:"
+  enter_turnstile: "是否要求报名者通过 Cloudflare Turnstile 人机验证?(6/9) 是/否:"
+  enter_prizemode: |
+    奖品怎么发?(7/9)
+    1 = 每人一条独立码,2 = 所有人同一段文本,0 = 不自动发(自己联系中奖者)
+  bad_prizemode: 请回答 1(独立码)、2(共享文本)或 0(不自动发)。
+  enter_codes_unique: |
+    请录入「{tier}」的奖品 (8/9),一行一条,共需 {count} 条,
+    超出部分会一起存进奖池。发送 - 跳过,之后可用 /addcodes 补。
+  enter_codes_shared: |
+    请录入「{tier}」的共享文本 (8/9),下一条消息会原样发给所有中奖者。
+    发送 - 跳过。
+  bad_codes: 没有收到可用的奖品内容,请一行一条粘贴,或发送 - 跳过。
+  codes_short: |
+    ⚠️ 只收到 {count} 条,少于中奖名额 {needed} 条。
+    仍然继续,发完后可用 /addcodes 补货。
+  mode_unique: 每人一条独立码
+  mode_shared: 所有人共享同一段文本
+  mode_none: 不自动发(主办方自行联系)
+  enter_target: "发布到哪里 (9/9):转发频道消息,或发送 @频道 / 数字 chat id:"
   bad_target: "无法定位该目标,请转发频道中的消息,或直接发送 @频道。"
   confirm: |
     请确认:
@@ -157,6 +210,7 @@ fsm:
     频道: {channels}
     结束时间: {ends_at}
     人机验证: {turnstile}
+    发奖方式: {prizemode}
     发布到: {target}
     发送 "ok" 发布,发送 /cancel 放弃。
   saved: "✅ 抽奖已发布,保留本条消息可用于管理:"

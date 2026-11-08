@@ -6,6 +6,7 @@ from bot.handlers.admin_create import build_admin_create_router
 from bot.handlers.admin_manage import build_admin_manage_router
 from bot.handlers.errors import build_errors_router
 from bot.handlers.participate import build_participate_router
+from bot.handlers.prize import build_prize_admin_router, build_prize_router
 from bot.handlers.start import build_start_router
 
 
@@ -14,6 +15,8 @@ def build_router() -> Router:
     root.include_router(build_start_router())
     root.include_router(build_participate_router())
     root.include_router(build_admin_create_router())
+    root.include_router(build_prize_router())
     root.include_router(build_admin_manage_router())
+    root.include_router(build_prize_admin_router())
     root.include_router(build_errors_router())
     return root

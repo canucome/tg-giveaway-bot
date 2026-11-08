@@ -42,6 +42,8 @@ class GiveawayView:
     chat_id: int | None
     message_id: int | None
     turnstile_required: bool
+    #: "none" | "unique" | "shared" - see Giveaway.prize_mode.
+    prize_mode: str = "none"
     required_channels: tuple[str, ...] = ()
     prize_tiers: tuple[dict[str, Any], ...] = ()
     end_at: datetime | None = None
@@ -56,6 +58,7 @@ class GiveawayView:
             chat_id=gw.chat_id,
             message_id=gw.message_id,
             turnstile_required=gw.turnstile_required,
+            prize_mode=gw.prize_mode or "none",
             required_channels=tuple(gw.required_channels or ()),
             prize_tiers=tuple(dict(t) for t in (gw.prize_tiers or ())),
             end_at=gw.end_at,
@@ -135,6 +138,7 @@ async def create_giveaway(
     required_channels: list[str],
     end_at: datetime,
     turnstile_required: bool,
+    prize_mode: str = "none",
 ) -> Giveaway:
     gw = Giveaway(
         creator_id=creator_id,
@@ -144,6 +148,7 @@ async def create_giveaway(
         required_channels=required_channels,
         end_at=end_at,
         turnstile_required=turnstile_required,
+        prize_mode=prize_mode,
     )
     session.add(gw)
     await session.flush()

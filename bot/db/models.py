@@ -15,6 +15,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -63,6 +64,11 @@ class Giveaway(Base):
         index=True,
     )
     turnstile_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    # How the prize reaches the winner: "none" (host contacts them), "unique"
+    # (one code each) or "shared" (the same text for everybody).  VARCHAR and
+    # not an enum on purpose - the lightweight ALTER in bot/db/base.py has to
+    # be able to add this column to an existing database.
+    prize_mode: Mapped[str] = mapped_column(String(16), default="none")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
 
     participants: Mapped[list["Participant"]] = relationship(
@@ -122,6 +128,51 @@ class WinnerLog(Base):
     __table_args__ = (
         Index("ix_winner_logs_current", "giveaway_id", "tier_name", "replaced_at"),
     )
+
+
+class PrizeCode(Base):
+    """One row of prize stock.
+
+    A unique code is a row with ``max_claims=1``; a shared text is a row
+    whose cap is huge, so both modes go through the same claim path.
+    """
+
+    __tablename__ = "prize_codes"
+    __table_args__ = (
+        Index("ix_prize_codes_stock", "giveaway_id", "tier_name", "claimed_count"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    giveaway_id: Mapped[int] = mapped_column(
+        ForeignKey("giveaways.id", ondelete="CASCADE"), index=True
+    )
+    tier_name: Mapped[str] = mapped_column(String(64))
+    code: Mapped[str] = mapped_column(Text)
+    max_claims: Mapped[int] = mapped_column(Integer, default=1)
+    claimed_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
+
+
+class PrizeClaim(Base):
+    """Who already took which row; the unique constraint is the last guard."""
+
+    __tablename__ = "prize_claims"
+    __table_args__ = (
+        UniqueConstraint(
+            "giveaway_id", "user_id", "tier_name", name="uq_prize_claim_gw_user_tier"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    giveaway_id: Mapped[int] = mapped_column(
+        ForeignKey("giveaways.id", ondelete="CASCADE"), index=True
+    )
+    tier_name: Mapped[str] = mapped_column(String(64))
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    code_id: Mapped[int] = mapped_column(
+        ForeignKey("prize_codes.id", ondelete="CASCADE"), index=True
+    )
+    claimed_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
 
 
 class AdminUser(Base):

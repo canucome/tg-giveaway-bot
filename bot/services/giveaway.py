@@ -35,6 +35,7 @@ async def create(
     required_channels: list[str],
     end_at: datetime,
     turnstile_required: bool,
+    prize_mode: str = "none",
 ) -> Giveaway:
     sm = get_sessionmaker()
     async with sm() as session:
@@ -47,6 +48,7 @@ async def create(
             required_channels=required_channels,
             end_at=end_at,
             turnstile_required=turnstile_required,
+            prize_mode=prize_mode,
         )
         await session.commit()
         return gw

@@ -53,6 +53,7 @@ button:
   open_channel: "🔗 Open channel"
   refresh: "🔄 Refresh"
   open_bot: "Open the bot"
+  claim: "🎁 Claim prize"
 
 join:
   ok: "🎉 You're in! Good luck."
@@ -95,7 +96,44 @@ winner_dm:
     🎉 Congrats! You won at "{title}".
     Tier: {tier}
     The host will follow up shortly, or DM {creator}.
+  body_claim: |
+    🎉 Congrats! You won at "{title}".
+    Tier: {tier}
+    Press the "🎁 Claim prize" button below to receive it — /claim and
+    /myprizes work too.
   host: "the host (ID: {id})"
+
+# Self-service prize delivery.  A prize is either a unique code per winner
+# ("unique") or one shared text for everybody ("shared").  {code} is sent
+# verbatim, so keep markup-sensitive characters out of it.
+prize:
+  claimed: "🎁 Here is your prize:\n\n{code}"
+  empty: |
+    ⚠️ This tier is out of stock right now.
+    The host has been notified; press the button again once they top it up.
+  already: You already claimed this tier — send /myprizes to see it again.
+  not_winner: Only winners of this tier can claim it.
+  none_mode: This giveaway does not deliver prizes automatically.
+  unknown: No such giveaway — it may have been deleted.
+  claim_usage: "usage: /claim <giveaway_id>"
+  stock_alert: |
+    ⚠️ Giveaway #{id} has run out of "{tier}" prizes, so winners cannot claim.
+    Top it up with /addcodes {id} {tier}
+  myprizes_empty: You haven't claimed any prizes yet.
+  myprizes_header: "🎁 Prizes you have claimed ({count}):"
+  myprizes_row: |
+    #{id} {title} — {tier}
+    {code}
+  stock_header: "📦 Stock of giveaway #{id}:"
+  stock_row: "• {tier}: total {total} / claimed {claimed} / left {remaining}"
+  stock_empty: Giveaway #{id} has no prize stock yet.
+  status_usage: "usage: /prizestatus <giveaway_id>"
+  addcodes_usage: "usage: /addcodes <giveaway_id> <tier_name>"
+  addcodes_prompt: |
+    Send me the "{tier}" prizes, one per line.  Send - when you're done.
+  addcodes_ok: '✅ Added {count} prize(s) to "{tier}".'
+  addcodes_empty: Nothing received — paste one prize per line, or send - to finish.
+  addcodes_unknown_tier: "Giveaway #{id} has no tier called {tier}. Known tiers: {tiers}"
 
 admin:
   list_empty: No running giveaways.
@@ -129,10 +167,10 @@ admin:
 # Wizard for /newgiveaway.  Steps are numbered so an admin can see where
 # they are; the draft lives in FSM state until the final "ok".
 fsm:
-  enter_title: "Giveaway title (1/7):"
-  enter_description: "Description (2/7), or - to skip:"
+  enter_title: "Giveaway title (1/9):"
+  enter_description: "Description (2/9), or - to skip:"
   enter_prizes: |
-    Prize tiers (3/7), one per line:
+    Prize tiers (3/9), one per line:
     name: count
     e.g.
     Steam card: 2
@@ -141,16 +179,33 @@ fsm:
     Could not parse that.  Every line must look like "name: count",
     for example "Steam card: 2".
   enter_channels: |
-    Required channels (4/7), one @channel per line,
+    Required channels (4/9), one @channel per line,
     or - to skip.  The bot must already be an administrator of every channel
     you list, and members are checked at join time.
   bad_channels: |
     The bot cannot use these channels — add it as an admin first:
     {channels}
-  enter_duration: "Ends at (5/7): a duration like 2h / 3d / 1w, or an absolute time:"
+  enter_duration: "Ends at (5/9): a duration like 2h / 3d / 1w, or an absolute time:"
   bad_duration: Could not read that time. Try "30m", "6h", "3d" or "2026-01-31 20:00".
-  enter_turnstile: "Require a Cloudflare Turnstile captcha for joining? (6/7) yes/no:"
-  enter_target: "Post it where (7/7): forward a channel post, or send @channel or the chat id:"
+  enter_turnstile: "Require a Cloudflare Turnstile captcha for joining? (6/9) yes/no:"
+  enter_prizemode: |
+    How should the prize be delivered? (7/9)
+    1 = a unique code per winner, 2 = one text shared by all, 0 = deliver manually
+  bad_prizemode: Please answer 1 (unique codes), 2 (shared text) or 0 (manual).
+  enter_codes_unique: |
+    Enter the "{tier}" prizes (8/9), one per line — {count} needed,
+    extras are kept in stock.  Send - to skip and top up later with /addcodes.
+  enter_codes_shared: |
+    Enter the shared "{tier}" text (8/9).  The next message is sent to every
+    winner verbatim.  Send - to skip.
+  bad_codes: Nothing usable received — paste one prize per line, or send - to skip.
+  codes_short: |
+    ⚠️ Only {count} received, but {needed} are needed.
+    Continuing anyway; use /addcodes to top up before the draw.
+  mode_unique: a unique code per winner
+  mode_shared: one text shared by everybody
+  mode_none: delivered manually by the host
+  enter_target: "Post it where (9/9): forward a channel post, or send @channel or the chat id:"
   bad_target: "Could not resolve that target. Forward a message from the channel, or send @channel."
   confirm: |
     Please check:
@@ -159,6 +214,7 @@ fsm:
     Channels: {channels}
     Ends at: {ends_at}
     Captcha: {turnstile}
+    Prize delivery: {prizemode}
     Post to: {target}
     Send "ok" to publish, or /cancel to abort.
   saved: "✅ Giveaway published. Keep this message for controls:"

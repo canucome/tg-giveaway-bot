@@ -4,7 +4,9 @@ import logging
 from typing import Sequence
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from bot.callbacks.factories import ClaimCb
 from bot.db.base import get_sessionmaker
 from bot.db.repo import (
     GiveawayView,
@@ -31,6 +33,33 @@ async def _winner_langs(session, winner_ids: Sequence[int]) -> dict[int, str]:
 
     stmt = select(User).where(User.user_id.in_(list(winner_ids)))
     return {u.user_id: u.lang for u in (await session.execute(stmt)).scalars().all() if u.lang}
+
+
+def _claim_keyboard(
+    giveaway: GiveawayView, tier: str, lang: str
+) -> InlineKeyboardMarkup | None:
+    """The "claim my prize" button, or None when the host delivers by hand.
+
+    The tier travels as its position in ``prize_tiers``; a tier that no longer
+    exists (rerolled away, edited post) yields no button rather than a dead
+    one that would do nothing when pressed.
+    """
+    if giveaway.prize_mode == "none":
+        return None
+    tiers = list(giveaway.prize_tiers or ())
+    index = next((i for i, item in enumerate(tiers) if str(item.get("name")) == tier), None)
+    if index is None:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("button.claim", lang),
+                    callback_data=ClaimCb(giveaway_id=giveaway.id, tier_index=index).pack(),
+                )
+            ]
+        ]
+    )
 
 
 async def publish_winners(
@@ -118,8 +147,11 @@ async def publish_winners(
                 giveaway.creator_id,
                 t("winner_dm.host", winner_lang, id=giveaway.creator_id),
             )
+        body_key = (
+            "winner_dm.body" if giveaway.prize_mode == "none" else "winner_dm.body_claim"
+        )
         body = t(
-            "winner_dm.body",
+            body_key,
             winner_lang,
             title=giveaway.title,
             tier=tier,
@@ -128,7 +160,9 @@ async def publish_winners(
         error: str | None = None
         ok = True
         try:
-            await bot.send_message(user_id, body)
+            await bot.send_message(
+                user_id, body, reply_markup=_claim_keyboard(giveaway, tier, winner_lang)
+            )
         except Exception as exc:
             ok = False
             error = f"{type(exc).__name__}: {exc}"
@@ -187,12 +221,19 @@ async def retry_pending(bot: Bot, giveaway_id: int) -> int:
                 giveaway.creator_id, t("winner_dm.host", winner_lang, id=giveaway.creator_id)
             )
         )
+        body_key = (
+            "winner_dm.body" if giveaway.prize_mode == "none" else "winner_dm.body_claim"
+        )
         body = t(
-            "winner_dm.body", winner_lang, title=giveaway.title, tier=tier, creator=creator_str
+            body_key, winner_lang, title=giveaway.title, tier=tier, creator=creator_str
         )
         ok, error = True, None
         try:
-            await bot.send_message(user_id, body)
+            # A retried DM must carry the claim button too, otherwise a winner
+            # whose first DM failed could never collect their prize.
+            await bot.send_message(
+                user_id, body, reply_markup=_claim_keyboard(giveaway, tier, winner_lang)
+            )
             sent += 1
         except Exception as exc:
             ok, error = False, f"{type(exc).__name__}: {exc}"

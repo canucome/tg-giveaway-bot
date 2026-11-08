@@ -17,6 +17,7 @@ from bot.i18n import t
 from bot.keyboards.admin import admin_giveaway_panel
 from bot.keyboards.participate import participate_keyboard
 from bot.services import giveaway as gw_service
+from bot.services import prize as prize_service
 from bot.services.channels import validate_channels
 from bot.services.scheduler import GiveawayScheduler
 from bot.settings import get_settings
@@ -34,8 +35,28 @@ class GiveawayDraft(StatesGroup):
     waiting_channels = State()
     waiting_duration = State()
     waiting_turnstile = State()
+    waiting_prizemode = State()
+    waiting_codes = State()
     waiting_target = State()
     waiting_confirm = State()
+
+
+async def _ask_codes(message: Message, state: FSMContext, lang: str) -> None:
+    """Ask for the stock of the next tier, or move on to the target step."""
+    data = await state.get_data()
+    tiers = list(data.get("prizes") or [])
+    index = int(data.get("codes_index", 0))
+    if index >= len(tiers):
+        await state.set_state(GiveawayDraft.waiting_target)
+        await message.answer(t("fsm.enter_target", lang))
+        return
+    tier = tiers[index]
+    if data.get("prize_mode") == "shared":
+        await message.answer(t("fsm.enter_codes_shared", lang, tier=tier["name"]))
+    else:
+        await message.answer(
+            t("fsm.enter_codes_unique", lang, tier=tier["name"], count=tier["count"])
+        )
 
 
 def build_admin_create_router() -> Router:
@@ -125,6 +146,69 @@ def build_admin_create_router() -> Router:
             await message.answer(t("admin.turnstile_not_configured", lang))
             return
         await state.update_data(turnstile=turn)
+        await state.set_state(GiveawayDraft.waiting_prizemode)
+        await message.answer(t("fsm.enter_prizemode", lang))
+
+    @router.message(GiveawayDraft.waiting_prizemode)
+    async def step_prizemode(message: Message, state: FSMContext) -> None:
+        lang = await lang_of(message.from_user.id)
+        text = (message.text or "").strip().lower()
+        if text in {"0", "none", "no", "n", "off", "否", "不"}:
+            mode = "none"
+        elif text in {"1", "unique", "code", "codes", "独立码", "码"}:
+            mode = "unique"
+        elif text in {"2", "shared", "text", "shared_text", "共享", "共享文本", "文本"}:
+            mode = "shared"
+        else:
+            await message.answer(t("fsm.bad_prizemode", lang))
+            return
+        await state.update_data(prize_mode=mode, codes_index=0, codes_buffer=[])
+        if mode == "none":
+            await state.set_state(GiveawayDraft.waiting_target)
+            await message.answer(t("fsm.enter_target", lang))
+            return
+        await state.set_state(GiveawayDraft.waiting_codes)
+        await _ask_codes(message, state, lang)
+
+    @router.message(GiveawayDraft.waiting_codes)
+    async def step_codes(message: Message, state: FSMContext) -> None:
+        lang = await lang_of(message.from_user.id)
+        data = await state.get_data()
+        tiers = list(data.get("prizes") or [])
+        index = int(data.get("codes_index", 0))
+        if index >= len(tiers):
+            await state.set_state(GiveawayDraft.waiting_target)
+            await message.answer(t("fsm.enter_target", lang))
+            return
+
+        tier = tiers[index]
+        mode = data.get("prize_mode") or "unique"
+        raw = (message.text or "").strip()
+        if raw == "-":
+            codes: list[str] = []
+        elif mode == "shared":
+            # The whole message is the prize text: newlines are meaningful.
+            codes = [raw]
+        else:
+            codes = [line.strip() for line in raw.splitlines() if line.strip()]
+            if not codes:
+                await message.answer(t("fsm.bad_codes", lang))
+                return
+
+        needed = int(tier.get("count") or 0)
+        if mode == "unique" and codes and len(codes) < needed:
+            # Fewer codes than winners is legal - the host can top up with
+            # /addcodes before the draw - but it must not be a silent surprise.
+            await message.answer(t("fsm.codes_short", lang, count=len(codes), needed=needed))
+
+        buffer = list(data.get("codes_buffer") or [])
+        if codes:
+            buffer.append([str(tier["name"]), codes])
+        await state.update_data(codes_buffer=buffer, codes_index=index + 1)
+
+        if index + 1 < len(tiers):
+            await _ask_codes(message, state, lang)
+            return
         await state.set_state(GiveawayDraft.waiting_target)
         await message.answer(t("fsm.enter_target", lang))
 
@@ -178,6 +262,7 @@ def build_admin_create_router() -> Router:
                 channels=channels_text,
                 ends_at=format_local(end_at, get_settings().tz),
                 turnstile=("on" if data.get("turnstile") else "off"),
+                prizemode=t(f"fsm.mode_{data.get('prize_mode', 'none')}", lang),
                 target=target_label,
             )
         )
@@ -205,6 +290,7 @@ def build_admin_create_router() -> Router:
             await message.answer(t("fsm.bad_duration", lang))
             return
 
+        mode = str(data.get("prize_mode") or "none")
         gw = await gw_service.create(
             creator_id=message.from_user.id,
             title=data["title"],
@@ -213,7 +299,21 @@ def build_admin_create_router() -> Router:
             required_channels=data["channels"],
             end_at=end_at,
             turnstile_required=bool(data.get("turnstile")),
+            prize_mode=mode,
         )
+
+        # Stock is filled before the post goes out, so a winner never presses
+        # a claim button that has nothing behind it yet.
+        max_claims = prize_service.max_claims_for(mode)
+        for tier_name, codes in data.get("codes_buffer") or []:
+            if not codes:
+                continue
+            try:
+                await prize_service.add_codes(
+                    gw.id, str(tier_name), list(codes), max_claims=max_claims
+                )
+            except Exception:
+                log.exception("add_codes failed: giveaway=%s tier=%s", gw.id, tier_name)
 
         sm = get_sessionmaker()
         async with sm() as session:
