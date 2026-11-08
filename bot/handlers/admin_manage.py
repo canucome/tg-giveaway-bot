@@ -17,6 +17,7 @@ from bot.db.repo import (
     is_admin_db,
     list_admins,
     list_giveaways_by_creator,
+    list_participants,
     unban_user,
 )
 from bot.filters.admin import IsAdmin
@@ -153,6 +154,48 @@ def build_admin_manage_router() -> Router:
             await message.answer(t("admin.reroll_empty", lang, id=gid, tier=esc(tier)))
             return
         await message.answer(t("admin.reroll_ok", lang, id=gid, tier=esc(tier), count=len(picks)))
+
+    @router.message(Command("gate"))
+    async def on_gate(message: Message, command: CommandObject) -> None:
+        """Show the anti-abuse policy, and optionally the ID spread of a giveaway.
+
+        Picking a MIN_USER_ID blind is how people block their whole audience, so
+        this prints the participant ID distribution first.
+        """
+        lang = await lang_of(message.from_user.id)
+        settings = get_settings()
+        lines = [
+            t(
+                "admin.gate_header",
+                lang,
+                gate=("on" if settings.account_age_gate else "off"),
+                min_user_id=settings.min_user_id,
+                rate=settings.verify_rate_per_minute,
+            )
+        ]
+        gid = _int_arg(command.args or "")
+        if gid is not None:
+            sm = get_sessionmaker()
+            async with sm() as session:
+                people = await list_participants(session, gid, verified_only=True)
+            ids = sorted(p.user_id for p in people)
+            if ids:
+                below = sum(1 for i in ids if i < settings.min_user_id) if settings.min_user_id else 0
+                lines.append(
+                    t(
+                        "admin.gate_dist",
+                        lang,
+                        id=gid,
+                        n=len(ids),
+                        low=ids[0],
+                        mid=ids[len(ids) // 2],
+                        high=ids[-1],
+                        blocked=below,
+                    )
+                )
+            else:
+                lines.append(t("admin.gate_empty", lang, id=gid))
+        await message.answer("\n".join(lines))
 
     @router.message(Command("ban"))
     async def on_ban(message: Message, command: CommandObject) -> None:

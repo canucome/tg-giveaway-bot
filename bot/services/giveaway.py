@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime
 
@@ -16,11 +17,13 @@ from bot.db.repo import (
     current_winner_ids,
     get_giveaway,
     list_participants,
+    list_winners,
     log_winners,
     replace_tier_winners,
     set_giveaway_message,
 )
 from bot.services.notifier import publish_winners
+from bot.utils.antiabuse import draw_indices, make_commit
 from bot.utils.rng import sample_winners
 
 log = logging.getLogger("bot.services.giveaway")
@@ -37,6 +40,9 @@ async def create(
     turnstile_required: bool,
     prize_mode: str = "none",
 ) -> Giveaway:
+    # Commit before the giveaway exists in public: the hash ships in the post,
+    # the seed is only revealed with the winners, so the draw can be replayed.
+    seed, commit = make_commit()
     sm = get_sessionmaker()
     async with sm() as session:
         gw = await create_giveaway(
@@ -49,6 +55,8 @@ async def create(
             end_at=end_at,
             turnstile_required=turnstile_required,
             prize_mode=prize_mode,
+            draw_seed=seed,
+            draw_commit=commit,
         )
         await session.commit()
         return gw
@@ -87,12 +95,24 @@ class RerollError(RuntimeError):
     """Why a reroll was refused.  The handler turns this into user text."""
 
 
+def _pool_digest(participants) -> str:
+    """Fingerprint of the eligible pool, so the draw can be replayed later.
+
+    Sorted by user_id, so the digest does not depend on join order.
+    """
+    ids = ",".join(str(p.user_id) for p in sorted(participants, key=lambda p: p.user_id))
+    return hashlib.sha256(ids.encode()).hexdigest()
+
+
 def _pick_tier(
     participants,
     tier_name: str,
     count: int,
     already: set[int],
     banned: set[int],
+    *,
+    seed: str | None = None,
+    salt_suffix: str = "",
 ) -> tuple[list, TierShortfall | None]:
     """Draw ``count`` winners, honouring both exclusion sets.
 
@@ -104,7 +124,16 @@ def _pick_tier(
     instead of quietly handing out fewer prizes (P1-5).
     """
     pool = [p for p in participants if p.user_id not in already and p.user_id not in banned]
-    picked = sample_winners(pool, count)
+    if seed:
+        # Deterministic by construction: the same seed, tier and pool always
+        # produce the same winners, which is what makes the public commit
+        # meaningful.  Falling back to SystemRandom is only for giveaways
+        # created before commit-reveal existed.
+        ordered = sorted(pool, key=lambda p: p.user_id)
+        indices = draw_indices(f"{seed}|{tier_name}{salt_suffix}", len(ordered), count)
+        picked = [ordered[i] for i in indices]
+    else:
+        picked = sample_winners(pool, count)
     if len(picked) < count:
         return picked, TierShortfall(tier=tier_name, requested=count, granted=len(picked))
     return picked, None
@@ -146,7 +175,20 @@ async def reroll_tier(
         # rerolled (its rows are about to be superseded).
         winners_elsewhere = await current_winner_ids(session, giveaway_id)
         banned = await blacklist_ids(session, [p.user_id for p in participants])
-        picked, shortfall = _pick_tier(participants, tier_name, count, winners_elsewhere, banned)
+        # A reroll must not replay the first draw, so the salt carries the round
+        # number - and that number is published with the new winners.
+        prior = await list_winners(session, giveaway_id, include_replaced=True)
+        round_no = sum(1 for w in prior if w.tier_name == tier_name) + 1
+        digest = _pool_digest(participants)
+        picked, shortfall = _pick_tier(
+            participants,
+            tier_name,
+            count,
+            winners_elsewhere,
+            banned,
+            seed=gw.draw_seed,
+            salt_suffix=f"|r{round_no}",
+        )
 
         await replace_tier_winners(session, giveaway_id, tier_name)
         picks = [(p.user_id, tier_name) for p in picked]
@@ -160,6 +202,8 @@ async def reroll_tier(
         winners=picks,
         reason="reroll",
         shortfalls=[shortfall] if shortfall is not None else [],
+        reveal_round=round_no,
+        pool_digest=digest,
     )
     return picks, shortfall
 
@@ -180,6 +224,7 @@ async def finalize_and_publish(giveaway_id: int, bot: Bot) -> None:
         participants = await list_participants(session, giveaway_id, verified_only=True)
         banned = await blacklist_ids(session, [p.user_id for p in participants])
         view = GiveawayView.of(gw)
+        digest = _pool_digest(participants)
 
         picks: list[tuple[int, str]] = []
         shortfalls: list[TierShortfall] = []
@@ -189,7 +234,9 @@ async def finalize_and_publish(giveaway_id: int, bot: Bot) -> None:
             if count <= 0:
                 continue
             already = {u for u, _ in picks}
-            picked, shortfall = _pick_tier(participants, name, count, already, banned)
+            picked, shortfall = _pick_tier(
+                participants, name, count, already, banned, seed=gw.draw_seed
+            )
             picks.extend((p.user_id, name) for p in picked)
             if shortfall is not None:
                 # P1-5: sample_winners() clamps k to the pool size, so a
@@ -203,4 +250,4 @@ async def finalize_and_publish(giveaway_id: int, bot: Bot) -> None:
     # ``view`` is a frozen dataclass, not the live ORM row: the old code
     # passed a session-scoped Giveaway across the session boundary and only
     # survived because expire_on_commit=False happened to be set.
-    await publish_winners(bot, view, winners=picks, shortfalls=shortfalls)
+    await publish_winners(bot, view, winners=picks, shortfalls=shortfalls, pool_digest=digest)

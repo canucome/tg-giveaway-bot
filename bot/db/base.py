@@ -50,6 +50,8 @@ _LIGHTWEIGHT_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("participants", "turnstile_nonce", "VARCHAR(64)"),
     ("participants", "turnstile_expires_at", "DATETIME"),
     ("giveaways", "prize_mode", "VARCHAR(16) DEFAULT 'none'"),
+    ("giveaways", "draw_seed", "VARCHAR(64)"),
+    ("giveaways", "draw_commit", "VARCHAR(64)"),
 )
 
 

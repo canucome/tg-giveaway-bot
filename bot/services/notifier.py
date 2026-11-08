@@ -69,6 +69,8 @@ async def publish_winners(
     *,
     shortfalls: Sequence[TierShortfall] = (),
     reason: str = "draw",
+    reveal_round: int | None = None,
+    pool_digest: str | None = None,
 ) -> None:
     """Announce a draw under the original post and DM every winner.
 
@@ -114,6 +116,19 @@ async def publish_winners(
             lines.append(
                 t("giveaway.winner_line", default_lang, tier=tier, mention=user_mention(user_id))
             )
+    if giveaway.draw_commit:
+        # Commit-reveal: the hash was printed when the giveaway opened, the seed
+        # appears only here, so everybody can replay the draw.
+        lines.append(
+            t(
+                "giveaway.reveal_line",
+                default_lang,
+                seed=giveaway.draw_seed or "-",
+                commit=giveaway.draw_commit,
+                digest=pool_digest or "-",
+                round=reveal_round or 1,
+            )
+        )
     for short in shortfalls:
         lines.append(
             t(

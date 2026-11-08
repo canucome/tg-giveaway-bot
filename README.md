@@ -15,6 +15,7 @@ A highly customizable and lightweight Telegram giveaway bot built with **Python 
 * **Required Channels**: Entry is refused unless the user is actually a member of every required channel (checked live at join time, fail-closed). The bot must be an administrator in each required channel/group to reliably inspect other members.
 * **Anti-Bot Verification**: Optional Cloudflare Turnstile verification. A passed challenge is stored as a single-use proof bound to one user and one giveaway; the wizard refuses to enable the captcha unless Turnstile is actually configured.
 * **Self-Service Prize Delivery**: The prize can be text — a redemption code or any message. Choose unique codes per winner or one shared text; every winner gets a "🎁 Claim prize" button in the DM and pulls the prize from the bot, so the host never sends anything by hand. Claims are atomic (a code is never handed out twice) and `/myprizes` re-shows what a user already received.
+* **Anti-Abuse Gates (on by default)**: a user-id floor filters throwaway accounts at join time, the verification page has a per-IP budget, and every draw is **commit-reveal** — `sha256(seed)` is printed in the giveaway post, the seed is revealed with the winners, and anyone can replay the draw.
 * **Admin Tools**: In-chat wizard (`/newgiveaway`) plus `/list`, `/cancel`, `/reroll`, `/retry`, `/ban`, `/unban`, `/addadmin`, `/admins`, `/addcodes`, `/prizestatus`.
 * **Auditable Draws**: Winners are drawn with `secrets.SystemRandom()`, a user can win at most one tier, rerolls only apply to finished giveaways and keep the superseded draw on record, and every winner DM is logged as delivered or failed.
 * **Health Endpoint**: `GET /healthz` is served by the built-in aiohttp server in both modes.
@@ -85,6 +86,22 @@ The suite covers timezone handling, duplicate and concurrent entries, channel en
 
 For captcha-protected giveaways, participants should first send `/start` in a private chat with the bot. The Join button sends a private verification link. Submit the Turnstile form, return to the bot, and press Join to finish entering. Completing the captcha alone does not enter the giveaway.
 
+### Verifiable draw (commit-reveal)
+
+Every giveaway commits to a secret before it opens: the post shows `sha256(seed) = <commit>`, the seed lives in the database until the draw. The announcement then publishes the seed, the commit and a SHA-256 digest of the participant snapshot, so the result can be replayed:
+
+1. take the eligible participants and sort them by `user_id` ascending;
+2. for each tier `T`, compute `draw_indices(f"{seed}|{T}", n, count)` — the same function the bot uses (`bot/utils/antiabuse.py`);
+3. those indices (into that sorted list) are the winners; a reroll uses `{seed}|{T}|r{n}` with `n` being the round number printed in the announcement.
+
+### Anti-abuse switches
+
+| Setting | Default | Effect |
+|---|---|---|
+| `ACCOUNT_AGE_GATE` / `MIN_USER_ID` | `true` / `0` | Reject entries from user ids below the floor. `0` keeps the gate armed without filtering; `/gate <id>` shows the id spread of a giveaway's participants so the number can be picked from data instead of guessing. |
+| `VERIFY_RATE_PER_MINUTE` | `10` | Per-IP budget for the verification page (GET+POST). `0` disables. In-process, so a multi-worker deployment needs a shared store. |
+| `TRUST_FORWARDED_FOR` | `true` | Read the client address from `X-Forwarded-For` when a reverse proxy (Caddy/Nginx) sits in front. |
+
 When the wizard asks how to deliver the prize, answer `1` for a unique code per winner, `2` for one text shared by everybody, or `0` to hand prizes out yourself. Stock can be topped up at any time with `/addcodes <id> <tier_name>` (one prize per line, `-` to finish), and `/prizestatus <id>` shows total/claimed/remaining per tier. Winners press the claim button, or send `/claim <id>` (all unclaimed tiers at once) and `/myprizes`. If a tier runs dry, the winner is told so, and the host is notified once with the exact `/addcodes` command to fix it.
 
 If a winner DM fails or a restart interrupts delivery, an admin can use `/retry <giveaway_id>` to send undelivered current winner messages. Successfully recorded deliveries and superseded winners are excluded. Public announcements are not retried by this command. A crash between Telegram accepting a message and the delivery record being committed can still cause a duplicate DM on retry.
@@ -102,6 +119,7 @@ If a winner DM fails or a restart interrupts delivery, an admin can use `/retry 
 * **加群/加频道限制**：报名时实时调用 `get_chat_member` 校验，用户没有真正加入所列频道会被拒绝（检查失败时按「未加入」处理，不放行）。
 * **反作弊/防脚本**：可选启用 Cloudflare Turnstile。验证通过后会签发一次性凭据，绑定「一个用户 + 一个抽奖」，10 分钟过期；未配置完整时向导会直接拒绝勾选，而不会再发一个什么都不校验的盾牌图标。
 * **奖品自助领取**：奖品就是一段文本（兑换码/卡密/任何话术）。创建时可选「每人一个独立码」或「一份共享文本」，中奖私信里自带「🎁 领取奖品」按钮，中奖者自己从机器人处领走，主办方一条私信都不用发。领奖是原子操作，同一个码不会被发给两个人；`/myprizes` 可随时重看已领内容。
+* **反滥用三件套（默认开启）**：报名时按 user_id 下限挡新号、验证页按 IP 限速、开奖走**承诺-揭示**——抽奖帖里先公布 `sha256(seed)`，开奖时公布 seed，任何人都能复算名次。
 * **管理面板**：`/newgiveaway` 对话式向导，另有 `/list`、`/cancel`、`/reroll`、`/retry`、`/ban`、`/unban`、`/addadmin`、`/admins`、`/addcodes`、`/prizestatus`。
 * **开奖可追溯**：使用 `secrets.SystemRandom()` 抽奖，同一人不会跨奖项重复中奖；`/reroll` 只对已结束抽奖生效并保留被替换的旧记录；中奖私信的成功/失败都会入库。
 * **健康检查**：两种模式都会由内建 aiohttp 服务提供 `GET /healthz`。
@@ -148,6 +166,22 @@ If a winner DM fails or a restart interrupts delivery, an admin can use `/retry 
    pytest
    ```
    覆盖时区处理、重复与并发报名、频道校验、验证码表单及返回机器人流程、凭据原子消费、并发开奖及失败回滚、通知重试、奖品库存扣减与重复领奖拒绝、拉黑清理、重抽规则与中英文案键对齐，全程不访问 Telegram 或 Cloudflare 网络。
+
+### 可验证开奖（承诺-揭示）
+
+每场抽奖在开出来之前先立下承诺:抽奖帖里就印着 `sha256(seed) = <commit>`,而 seed 一直躺在数据库里,直到开奖。开奖公告会公布 seed、commit 和参与者快照的 sha256,任何人都能复算:
+
+1. 取合格参与者,按 `user_id` 升序排好;
+2. 对每个奖项 `T`,算 `draw_indices(f"{seed}|{T}", n, count)`——就是机器人自己用的那个函数(`bot/utils/antiabuse.py`);
+3. 这些下标对应用户就是中奖者;重抽用 `{seed}|{T}|r{n}`,`n` 是公告里写着的那一轮。
+
+### 反滥用开关
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `ACCOUNT_AGE_GATE` / `MIN_USER_ID` | `true` / `0` | 低于阈值的 user_id 直接拒之门外。`0` 表示闸门装着但不过滤;`/gate <抽奖id>` 会打印该场参与者 ID 分布,用数据挑阈值而不是拍脑袋。 |
+| `VERIFY_RATE_PER_MINUTE` | `10` | 验证页每 IP 每分钟请求数(GET+POST),`0` 关闭。进程内计数,多进程部署需要换成共享存储。 |
+| `TRUST_FORWARDED_FOR` | `true` | 前面挂了 Caddy/Nginx 时,从 `X-Forwarded-For` 取真实客户端 IP。 |
 
 开启验证码的抽奖：用户应先私聊机器人发送 `/start`，再点击抽奖的参加按钮接收验证链接。提交验证码表单后返回机器人，再点击参加按钮才算完成报名。机器人必须是每个必加频道/群的管理员。
 

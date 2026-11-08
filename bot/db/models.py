@@ -69,6 +69,11 @@ class Giveaway(Base):
     # not an enum on purpose - the lightweight ALTER in bot/db/base.py has to
     # be able to add this column to an existing database.
     prize_mode: Mapped[str] = mapped_column(String(16), default="none")
+    # Commit-reveal draw: the seed stays secret until the draw, its SHA-256 is
+    # published in the post, and the announcement reveals the seed so anybody
+    # can recompute the winners with hardening.checks.draw_indices().
+    draw_seed: Mapped[str | None] = mapped_column(String(64))
+    draw_commit: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
 
     participants: Mapped[list["Participant"]] = relationship(

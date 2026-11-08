@@ -2,7 +2,7 @@
    抽奖进行中(中文) / Giveaway running (Chinese)
    用户可自由修改本模板。可用变量见 README 模板章节,或对照下方现有占位:
    Variables: id, title, description, prizes ([{name,count},...]),
-   channels (list[str]), ends_at (str), count (int), turnstile (bool)
+   channels (list[str]), ends_at (str), count (int), turnstile (bool), commit (str)
    ============================================================================= #}
 🎁 <b>抽奖 #{{ id }}</b>
 
@@ -28,3 +28,7 @@
 {% endif %}
 ⏰ 结束时间:{{ ends_at }}
 👥 已报名:{{ count }} 人
+{% if commit %}
+🔐 可验证开奖,开奖前先公布承诺:
+sha256(seed) = <code>{{ commit }}</code>
+{% endif %}

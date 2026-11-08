@@ -330,6 +330,7 @@ def build_admin_create_router() -> Router:
             ends_at=format_local(gw.end_at, tz_name),
             count=count,
             turnstile=gw.turnstile_required,
+            commit=gw.draw_commit,
         )
 
         try:

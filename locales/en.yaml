@@ -73,6 +73,10 @@ join:
   verify_expired: This verification link has expired. Please request a new one.
   verify_sent: The verification button has been sent to your private chat with the bot.
   open_bot_first: Open the bot, send /start, then press Join again to receive the verification link.
+  verify_rate_limited: Too many requests - please wait a minute and try again.
+  too_new: |
+    ⚠️ This Telegram account is too new to enter this giveaway.
+    The host turned on the throwaway-account filter; please use an older account.
   verify_join_prompt: "✅ Captcha passed. Press Join below to complete your entry."
 
 giveaway:
@@ -90,6 +94,12 @@ giveaway:
   count_label: "{count} joined"
   ends_label: "Ends at: {ends_at}"
   prizes_label: "Prizes:\n{prizes}"
+  reveal_line: |
+    🔐 Verifiable draw (round {round})
+    seed: {seed}
+    sha256(seed): {commit}
+    participant snapshot: {digest}
+    See "verifiable draw" in the README for the replay recipe.
 
 winner_dm:
   body: |
@@ -163,6 +173,15 @@ admin:
     PUBLIC_BASE_URL so users can open the verification page).
     Configure Turnstile, or answer no to continue without a captcha.
   btn_cancel: Cancel this giveaway
+  gate_header: |
+    🛡 Anti-abuse settings
+    account-age gate: {gate} (MIN_USER_ID={min_user_id}, 0 means no filtering)
+    verification page: {rate} requests/min/IP
+  gate_dist: |
+    Giveaway #{id} has {n} eligible participant(s); user_id spread:
+    min {low} / median {mid} / max {high}
+    blocked by the current threshold: {blocked}
+  gate_empty: "Giveaway #{id} has no eligible participants yet."
 
 # Wizard for /newgiveaway.  Steps are numbered so an admin can see where
 # they are; the draft lives in FSM state until the final "ok".

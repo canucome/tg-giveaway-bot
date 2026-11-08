@@ -35,6 +35,13 @@ def _banner(settings) -> None:
         "on" if settings.turnstile_active else "off",
         settings.database_url.split("://", 1)[0],
     )
+    log.info(
+        " gates: account_age=%s min_user_id=%s verify_rate=%s/min trust_xff=%s",
+        "on" if settings.account_age_gate else "off",
+        settings.min_user_id or "(no filter)",
+        settings.verify_rate_per_minute or "off",
+        settings.trust_forwarded_for,
+    )
     log.info(" admins=%s", settings.admin_ids or "(none)")
     # The webhook path embeds WEBHOOK_SECRET; logging the full URL would
     # write the secret into log files.  masked_webhook_url() keeps just

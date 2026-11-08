@@ -73,6 +73,10 @@ join:
   verify_expired: 该验证链接已过期,请重新获取。
   verify_sent: 验证按钮已发送到你与机器人的私聊。
   open_bot_first: 请先打开机器人并发送 /start,然后重新点击参加以接收验证链接。
+  verify_rate_limited: 请求过于频繁,请等一分钟再试。
+  too_new: |
+    ⚠️ 你的 Telegram 账号注册时间太新,暂时不能参加这次抽奖。
+    这是主办方开启的防小号规则,请用注册较早的账号参加。
   verify_join_prompt: "✅ 验证已通过,请点击下方参加按钮完成报名。"
 
 giveaway:
@@ -90,6 +94,12 @@ giveaway:
   count_label: "已参与 {count} 人"
   ends_label: "结束时间:{ends_at}"
   prizes_label: "奖品:\n{prizes}"
+  reveal_line: |
+    🔐 可验证开奖(第 {round} 轮)
+    seed: {seed}
+    sha256(seed): {commit}
+    参与者快照: {digest}
+    复算方式见 README「可验证开奖」。
 
 winner_dm:
   body: |
@@ -161,6 +171,15 @@ admin:
     以及供用户打开验证页面的 PUBLIC_BASE_URL)。
     请配置人机验证,或回答「否」以继续创建。
   btn_cancel: 取消该抽奖
+  gate_header: |
+    🛡 反滥用设置
+    账号年龄闸门: {gate}(MIN_USER_ID={min_user_id},0 表示不过滤)
+    验证页限速: {rate} 次/分钟/IP
+  gate_dist: |
+    抽奖 #{id} 共 {n} 名合格参与者,user_id 分布:
+    最小 {low} / 中位 {mid} / 最大 {high}
+    当前阈值下会被挡掉:{blocked} 人
+  gate_empty: "抽奖 #{id} 还没有合格参与者。"
 
 # /newgiveaway 向导。每个步骤带序号,草稿保存在 FSM 状态中,
 # 直到最后一步输入 "ok" 才会真正创建。

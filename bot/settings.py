@@ -45,6 +45,20 @@ class Settings(BaseSettings):
     # a link nobody can open.
     public_base_url: str = ""
 
+    # --- anti-abuse gates -------------------------------------------------
+    # Telegram hands out user IDs in ascending order, so an ID threshold is a
+    # cheap "account is older than X" filter that no captcha can fake.  0 means
+    # "gate armed but no numeric filtering"; /gate shows the current policy and
+    # the ID spread of a giveaway so a threshold can be picked without guessing.
+    account_age_gate: bool = True
+    min_user_id: int = 0
+    # Per-IP budget for the verification page (GET and POST).  0 disables it.
+    verify_rate_per_minute: int = 10
+    # The Docker/Caddy deployment puts a reverse proxy in front, so the client
+    # address arrives in X-Forwarded-For.  Turn this off if the bot is exposed
+    # directly and you do not want the header trusted.
+    trust_forwarded_for: bool = True
+
     database_url: str = "sqlite+aiosqlite:///./data/bot.db"
 
     log_level: str = "INFO"

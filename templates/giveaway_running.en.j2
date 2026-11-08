@@ -2,7 +2,7 @@
    Giveaway running (English) / 抽奖进行中(英文)
    You can freely edit this template. Available variables:
    id, title, description, prizes ([{name,count},...]),
-   channels (list[str]), ends_at (str), count (int), turnstile (bool)
+   channels (list[str]), ends_at (str), count (int), turnstile (bool), commit (str)
    ============================================================================= #}
 🎁 <b>Giveaway #{{ id }}</b>
 
@@ -28,3 +28,7 @@
 {% endif %}
 ⏰ Ends at: {{ ends_at }}
 👥 Joined: {{ count }}
+{% if commit %}
+🔐 Verifiable draw - commitment published up front:
+sha256(seed) = <code>{{ commit }}</code>
+{% endif %}

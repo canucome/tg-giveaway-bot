@@ -21,6 +21,8 @@ from bot.db.turnstile_repo import consume_proof, has_valid_proof
 from bot.handlers.common import lang_of
 from bot.i18n import t
 from bot.services.channels import missing_channels
+from bot.settings import get_settings
+from bot.utils.antiabuse import account_age_gate
 from bot.utils.esc import esc_list
 
 log = logging.getLogger("bot.handlers.participate")
@@ -35,6 +37,14 @@ def build_participate_router() -> Router:
         username = cq.from_user.username
         lang = await lang_of(uid)
         gid = callback_data.giveaway_id
+
+        # Cheapest gate first: no database work, no Telegram call, and a farm of
+        # freshly registered accounts simply cannot get past it.
+        settings = get_settings()
+        if settings.account_age_gate and not account_age_gate(uid, settings.min_user_id):
+            log.info("join refused: user %s is below MIN_USER_ID", uid)
+            await cq.answer(t("join.too_new", lang), show_alert=True)
+            return
 
         sm = get_sessionmaker()
         async with sm() as session:
@@ -97,8 +107,6 @@ def build_participate_router() -> Router:
                     # Callback alerts cannot open a URL and are limited to
                     # 200 characters. Send a clickable button in private chat.
                     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
-                    from bot.settings import get_settings
 
                     await session.rollback()
                     try:

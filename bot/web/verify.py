@@ -16,8 +16,46 @@ from bot.db.turnstile_repo import issue_proof
 from bot.i18n import t
 from bot.services import turnstile as ts
 from bot.settings import get_settings
+from bot.utils.antiabuse import IpRateLimiter
 
 log = logging.getLogger("bot.web.verify")
+
+#: One budget per client address for the verification page.  Kept in memory on
+#: purpose: it only has to outlive a burst of scripted requests.
+_limiter: IpRateLimiter | None = None
+_limiter_per_minute: int | None = None
+
+
+def _client_ip(request: web.Request) -> str:
+    """Real client address, honouring a reverse proxy when trusted.
+
+    Written defensively: aiohttp always gives us headers and remote, but tests
+    and future call sites may pass a lighter request object.
+    """
+    settings = get_settings()
+    headers = getattr(request, "headers", None)
+    if settings.trust_forwarded_for and headers:
+        forwarded = headers.get("X-Forwarded-For", "") or ""
+        if forwarded:
+            # Caddy appends, so the left-most entry is the original client.
+            first = forwarded.split(",", 1)[0].strip()
+            if first:
+                return first
+    return getattr(request, "remote", None) or "unknown"
+
+
+def _enforce_rate_limit(request: web.Request) -> None:
+    """Raise 429 once a client exceeds VERIFY_RATE_PER_MINUTE."""
+    global _limiter, _limiter_per_minute
+    settings = get_settings()
+    if _limiter is None or _limiter_per_minute != settings.verify_rate_per_minute:
+        _limiter = IpRateLimiter(per_minute=settings.verify_rate_per_minute)
+        _limiter_per_minute = settings.verify_rate_per_minute
+    if not _limiter.allow(_client_ip(request)):
+        log.warning("verification page rate limited for %s", _client_ip(request))
+        raise web.HTTPTooManyRequests(
+            text=t("join.verify_rate_limited"), headers={"Retry-After": "60"}
+        )
 
 _PAGE = """<!doctype html>
 <html lang="en">
@@ -111,11 +149,13 @@ async def _context(request: web.Request) -> tuple[int, int]:
 
 
 async def verify_page(request: web.Request) -> web.Response:
+    _enforce_rate_limit(request)
     gid, uid = await _context(request)
     return _response(_form(gid, uid), with_widget=True)
 
 
 async def verify_submit(request: web.Request) -> web.Response:
+    _enforce_rate_limit(request)
     gid, uid = await _context(request)
     form = await request.post()
     token = str(form.get("cf-turnstile-response") or "")
