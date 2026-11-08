@@ -1,0 +1,5 @@
+# Telegram posts updates to https://<DOMAIN>/tg/<WEBHOOK_SECRET>
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy bot:8080
+}

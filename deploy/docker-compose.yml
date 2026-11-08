@@ -1,0 +1,38 @@
+# docker compose up -d --build
+# Needs a .env in the repository root (copy .env.example and fill it in first).
+# DOMAIN is only used by Caddy to obtain an HTTPS certificate; without a domain
+# use <your-public-ip>.nip.io, e.g. DOMAIN=1.2.3.4.nip.io
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: "8080"
+    volumes:
+      - ../data:/app/data
+    restart: unless-stopped
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - bot
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN first, e.g. 1.2.3.4.nip.io}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
